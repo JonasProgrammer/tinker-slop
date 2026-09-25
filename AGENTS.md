@@ -60,6 +60,8 @@ through a link from the root README.
 
 ## C++
 
+- Use the `.cpp` extension for all C++ translation units, including module
+  interface units. Do not use `.cppm`.
 - Prefer C++ modules for project interfaces. Use classic headers when required
   by a dependency, toolchain limitation, or a clearly documented compatibility
   need.
