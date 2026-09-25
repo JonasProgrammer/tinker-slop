@@ -5,8 +5,8 @@
 from firmware 2.6.0.50 using config format v2.2.3. Other firmware or format
 versions are accepted with a warning when the known structures still validate.
 
-The input file is opened read-only. The tool will refuse an output path that
-resolves to the input file.
+The input file is opened read-only. The tool performs a best-effort check that
+the output path does not resolve to the input file.
 
 ## Security
 
@@ -19,7 +19,12 @@ record offsets, types, sizes, and knowledge labels to stderr; it deliberately
 omits payload bytes. Even that structural metadata can reveal configuration
 details, so diagnostic use prints a security notice.
 
-The repository ignores `switch.cfg` and all `*.cfg` files.
+The input/output identity check is not atomic with opening the output. A local
+attacker who can replace directory entries concurrently could race the check
+with a symlink or hard link. Do not write reports into an attacker-controlled
+directory when preserving the input is security-critical.
+
+The repository ignores `*.cfg` files.
 
 ## Requirements and build
 
@@ -48,18 +53,6 @@ The root option `JSTS_BUILD_JGS245_PORTS` controls whether the tool is built.
 It defaults to `ON`. The advanced
 `JSTS_JGS245_PORTS_BOOST_USE_STATIC_LIBS` option inherits the root
 `JSTS_BOOST_USE_STATIC_LIBS` preference.
-
-To add a private real-backup integration test without copying it into the source
-tree, configure with:
-
-```sh
-cmake -S . -B build -G Ninja \
-  -DCMAKE_TOOLCHAIN_FILE=/etc/static/dev-profiles/cpp-clang.cmake \
-  -DJSTS_JGS245_PORTS_SAMPLE_CONFIG=/private/path/switch.cfg
-```
-
-CTest then runs the parser in strict JSON mode against that file. The path is an
-advanced cache setting; the backup is never copied or modified.
 
 ## Usage
 
@@ -174,7 +167,15 @@ All 24 ports appear in the output. A missing PVID record is a warning. A PVID
 that does not match an untagged membership is also a warning; the tool reports
 the inconsistency and does not rewrite either value.
 
-The input is capped at 16 MiB to bound attacker-controlled allocation and work.
+The parser independently caps input at 16 MiB, VLAN records at 4094, PVID
+records at 24, and records following the PVID table at 4096. A partial trailing
+header or a trailing record whose declared size exceeds the input produces a
+warning, so `--strict` rejects it.
+
+Every renderer validates the domain model before constructing output. Limits
+cover metadata and warning text, port/VLAN cardinalities, per-record lists, and
+diagnostic summaries. These checks prevent an oversized programmatically-built
+model from causing unbounded output allocation.
 
 ## Format knowledge and limitations
 

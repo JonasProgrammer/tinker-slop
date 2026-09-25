@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -17,6 +18,7 @@ import jgs245_ports.render;
 namespace
 {
 using Bytes3 = std::array<std::uint8_t, 3>;
+constexpr std::size_t maximum_configuration_size = 16U * 1024U * 1024U;
 
 struct VlanSpec
 {
@@ -170,6 +172,12 @@ BOOST_AUTO_TEST_CASE(truncated_record_pair_is_rejected)
     BOOST_CHECK_THROW(static_cast<void>(parse(bytes)), jgs245_ports::ParseError);
 }
 
+BOOST_AUTO_TEST_CASE(parser_rejects_input_over_safety_limit)
+{
+    std::vector<std::byte> bytes(maximum_configuration_size + 1, std::byte{});
+    BOOST_CHECK_THROW(static_cast<void>(parse(bytes)), jgs245_ports::ParseError);
+}
+
 BOOST_AUTO_TEST_CASE(record_marker_bytes_are_not_accepted_without_nested_framing)
 {
     auto bytes = make_fixture();
@@ -223,6 +231,43 @@ BOOST_AUTO_TEST_CASE(missing_pvid_and_pvid_membership_mismatch_are_warnings)
     BOOST_REQUIRE_EQUAL(configuration.warnings.size(), 2);
     BOOST_TEST(configuration.warnings.at(0).find("port 1") != std::string::npos);
     BOOST_TEST(configuration.warnings.at(1).find("port 24") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(trailing_bytes_and_malformed_trailing_records_are_reported)
+{
+    auto trailing_byte_fixture = make_fixture();
+    trailing_byte_fixture.push_back(byte(0xaa));
+    auto const trailing_byte_configuration = parse(trailing_byte_fixture);
+    BOOST_REQUIRE_EQUAL(trailing_byte_configuration.warnings.size(), 1);
+    BOOST_TEST(trailing_byte_configuration.warnings.front().find("1 trailing byte(s)") != std::string::npos);
+
+    auto malformed_record_fixture = make_fixture();
+    append_record_header(malformed_record_fixture, 0x38, 10);
+    auto const malformed_record_configuration = parse(malformed_record_fixture);
+    BOOST_REQUIRE_EQUAL(malformed_record_configuration.warnings.size(), 1);
+    BOOST_TEST(malformed_record_configuration.warnings.front().find("malformed trailing record") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(parser_rejects_excessive_following_record_count)
+{
+    auto bytes = make_fixture();
+    for (std::size_t index = 0; index < 4097; ++index) append_record_header(bytes, 0x38, 4);
+    BOOST_CHECK_THROW(static_cast<void>(parse(bytes)), jgs245_ports::ParseError);
+}
+
+BOOST_AUTO_TEST_CASE(renderers_reject_oversized_domain_models)
+{
+    auto excessive_ports = parse(make_fixture());
+    excessive_ports.ports.push_back(jgs245_ports::Port{.port = 25});
+    BOOST_CHECK_THROW(static_cast<void>(jgs245_ports::render_json(excessive_ports)), std::runtime_error);
+
+    auto excessive_warning = parse(make_fixture());
+    excessive_warning.warnings.push_back(std::string(1025, 'x'));
+    BOOST_CHECK_THROW(static_cast<void>(jgs245_ports::render_html(excessive_warning)), std::runtime_error);
+
+    auto excessive_records = parse(make_fixture());
+    excessive_records.records.resize(10001);
+    BOOST_CHECK_THROW(static_cast<void>(jgs245_ports::render_record_dump(excessive_records)), std::runtime_error);
 }
 
 BOOST_AUTO_TEST_CASE(renderers_are_port_centric_and_self_contained)

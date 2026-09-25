@@ -23,7 +23,7 @@ namespace
 namespace po = boost::program_options;
 namespace fs = std::filesystem;
 
-constexpr std::string_view tool_version = "0.1.0";
+constexpr std::string_view tool_version = "0.1.1";
 constexpr std::uintmax_t maximum_input_size = 16U * 1024U * 1024U;
 
 enum class OutputFormat
@@ -222,7 +222,15 @@ int main(int argc, char const* const argv[])
     if (command.dump_records)
     {
         std::cerr << "jgs245-ports: diagnostic record metadata may reveal configuration structure; payload bytes are intentionally omitted\n";
-        std::cerr << jgs245_ports::render_record_dump(configuration);
+        try
+        {
+            std::cerr << jgs245_ports::render_record_dump(configuration);
+        }
+        catch (std::exception const& error)
+        {
+            std::cerr << "jgs245-ports: output error: " << error.what() << '\n';
+            return 6;
+        }
     }
     if (command.strict && !configuration.warnings.empty())
     {
@@ -230,7 +238,16 @@ int main(int argc, char const* const argv[])
         return 5;
     }
 
-    auto const content = render(configuration, command);
+    std::string content;
+    try
+    {
+        content = render(configuration, command);
+    }
+    catch (std::exception const& error)
+    {
+        std::cerr << "jgs245-ports: output error: " << error.what() << '\n';
+        return 6;
+    }
     if (!write_output(content, command.output))
     {
         std::cerr << "jgs245-ports: output error: could not write the requested output\n";

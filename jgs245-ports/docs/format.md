@@ -145,5 +145,11 @@ UNKNOWN. The diagnostic record summary can show offset, type, and inferred size
 for records following the verified anchor. It does not print their payload or
 assign a setting name.
 
+The parser accepts at most 4096 well-framed records after the PVID table. Bytes
+that cannot form a complete inferred record header, or a record whose declared
+size extends past the input, produce a warning rather than being silently
+ignored. Strict mode rejects that warning. These checks validate framing only;
+they do not assign semantics to an unknown record.
+
 Future decoders should be added by record type, with fixtures that demonstrate
 controlled GUI changes and clear VERIFIED, INFERRED, and UNKNOWN labels.

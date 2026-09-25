@@ -23,6 +23,7 @@ import jgs245_ports.domain;
 
 namespace jgs245_ports {namespace
     {
+    constexpr std::size_t maximum_configuration_size = 16U * 1024U * 1024U;
     constexpr std::size_t record_header_size = 4;
     constexpr std::size_t vlan_record_size = 13;
     constexpr std::size_t pvid_record_size = 7;
@@ -33,6 +34,9 @@ namespace jgs245_ports {namespace
     constexpr std::size_t firmware_offset = 0x28;
     constexpr std::size_t fixed_text_size = 0x14;
     constexpr std::size_t record_search_offset = 0x40;
+    constexpr std::size_t maximum_vlan_records = 4094;
+    constexpr std::size_t maximum_pvid_records = port_count;
+    constexpr std::size_t maximum_following_records = 4096;
 
     struct RecordView
     {
@@ -92,11 +96,12 @@ namespace jgs245_ports {namespace
         return RecordView{.type = byte_value(bytes[offset]), .offset = offset, .size = size};
     }
 
-    [[nodiscard]] auto has_uniform_children(std::span<std::byte const> bytes, RecordView container, std::uint8_t type, std::size_t child_size) -> bool
+    [[nodiscard]] auto has_uniform_children(std::span<std::byte const> bytes, RecordView container, std::uint8_t type, std::size_t child_size, std::size_t maximum_children) -> bool
     {
         if (container.size <= record_header_size) return false;
         auto const payload_size = container.size - record_header_size;
         if (payload_size % child_size != 0) return false;
+        if (payload_size / child_size > maximum_children) return false;
 
         auto cursor = container.offset + record_header_size;
         auto const end = container.offset + container.size;
@@ -121,14 +126,15 @@ namespace jgs245_ports {namespace
         {
             if (byte_value(bytes[offset]) != vlan_record_type) continue;
             auto vlan_container = read_record(bytes, offset);
-            if (!vlan_container || !has_uniform_children(bytes, *vlan_container, vlan_record_type, vlan_record_size)) continue;
+            if (!vlan_container || !has_uniform_children(bytes, *vlan_container, vlan_record_type, vlan_record_size, maximum_vlan_records)) continue;
 
             auto const pvid_offset = offset + vlan_container->size;
             auto pvid_container = read_record(bytes, pvid_offset);
             if (!pvid_container || pvid_container->type != pvid_record_type) continue;
-            if (!has_uniform_children(bytes, *pvid_container, pvid_record_type, pvid_record_size)) continue;
+            if (!has_uniform_children(bytes, *pvid_container, pvid_record_type, pvid_record_size, maximum_pvid_records)) continue;
 
             matches.push_back(Anchors{.vlan_container = *vlan_container, .pvid_container = *pvid_container});
+            if (matches.size() > 1) break;
         }
 
         if (matches.empty())
@@ -306,13 +312,28 @@ namespace jgs245_ports {namespace
         return pvids;
     }
 
-    void describe_following_records(std::span<std::byte const> bytes, std::size_t offset, std::vector<RecordSummary>& summaries)
+    void describe_following_records(std::span<std::byte const> bytes, std::size_t offset, std::vector<RecordSummary>& summaries, std::vector<std::string>& warnings)
     {
         auto cursor = offset;
-        while (cursor + record_header_size <= bytes.size())
+        std::size_t record_count = 0;
+        while (cursor < bytes.size())
         {
+            auto const remaining = bytes.size() - cursor;
+            if (remaining < record_header_size)
+            {
+                warnings.push_back(std::to_string(remaining) + " trailing byte(s) at " + offset_text(cursor) + " do not form a record header");
+                return;
+            }
             auto record = read_record(bytes, cursor);
-            if (!record) break;
+            if (!record)
+            {
+                warnings.push_back("malformed trailing record at " + offset_text(cursor) + " with " + std::to_string(remaining) + " byte(s) remaining");
+                return;
+            }
+            if (record_count >= maximum_following_records)
+            {
+                throw std::runtime_error("record count after the PVID table exceeds the safety limit of " + std::to_string(maximum_following_records));
+            }
             summaries.push_back(RecordSummary{
                     .offset = record->offset,
                     .size = record->size,
@@ -321,6 +342,7 @@ namespace jgs245_ports {namespace
                     .description = "undecoded record",
             });
             cursor += record->size;
+            ++record_count;
         }
     }
 
@@ -372,6 +394,10 @@ namespace jgs245_ports {namespace
     {
         try
         {
+            if (bytes.size() > maximum_configuration_size)
+            {
+                throw std::runtime_error("input exceeds the 16 MiB parser safety limit");
+            }
             Configuration configuration;
             configuration.device.model = read_fixed_text(bytes, model_offset, "model");
             configuration.device.config_format = read_fixed_text(bytes, config_format_offset, "config format");
@@ -393,7 +419,7 @@ namespace jgs245_ports {namespace
             auto const anchors = locate_anchors(bytes);
             configuration.vlans = parse_vlans(bytes, anchors.vlan_container, configuration.records);
             auto const pvids = parse_pvids(bytes, anchors.pvid_container, configuration.records);
-            describe_following_records(bytes, anchors.pvid_container.offset + anchors.pvid_container.size, configuration.records);
+            describe_following_records(bytes, anchors.pvid_container.offset + anchors.pvid_container.size, configuration.records, configuration.warnings);
             configuration.ports = build_ports(configuration.vlans, pvids, configuration.warnings);
             return configuration;
         }

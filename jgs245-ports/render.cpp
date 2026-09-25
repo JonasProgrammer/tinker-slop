@@ -9,6 +9,7 @@ module;
 #include <optional>
 #include <ostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -19,6 +20,52 @@ import jgs245_ports.domain;
 
 namespace jgs245_ports {namespace
     {
+    constexpr std::size_t maximum_metadata_length = 64;
+    constexpr std::size_t maximum_warnings = 128;
+    constexpr std::size_t maximum_warning_length = 1024;
+    constexpr std::size_t maximum_record_summaries = 10000;
+    constexpr std::size_t maximum_record_description_length = 256;
+    constexpr std::size_t maximum_vlans = 4094;
+
+    void validate_render_input(Configuration const& configuration)
+    {
+        if (configuration.device.model.size() > maximum_metadata_length || configuration.device.config_format.size() > maximum_metadata_length ||
+            configuration.device.firmware.size() > maximum_metadata_length)
+        {
+            throw std::runtime_error("device metadata exceeds the renderer safety limit");
+        }
+        if (configuration.ports.size() > port_count) throw std::runtime_error("port count exceeds the renderer safety limit");
+        if (configuration.vlans.size() > maximum_vlans) throw std::runtime_error("VLAN count exceeds the renderer safety limit");
+        if (configuration.warnings.size() > maximum_warnings) throw std::runtime_error("warning count exceeds the renderer safety limit");
+        if (configuration.records.size() > maximum_record_summaries) throw std::runtime_error("record summary count exceeds the renderer safety limit");
+
+        for (auto const& port : configuration.ports)
+        {
+            if (port.member_vlans.size() > maximum_vlans || port.tagged_vlans.size() > maximum_vlans || port.untagged_vlans.size() > maximum_vlans)
+            {
+                throw std::runtime_error("per-port VLAN count exceeds the renderer safety limit");
+            }
+        }
+        for (auto const& vlan : configuration.vlans)
+        {
+            if (vlan.member_ports.size() > port_count || vlan.tagged_ports.size() > port_count || vlan.untagged_ports.size() > port_count)
+            {
+                throw std::runtime_error("per-VLAN port count exceeds the renderer safety limit");
+            }
+        }
+        for (auto const& warning : configuration.warnings)
+        {
+            if (warning.size() > maximum_warning_length) throw std::runtime_error("warning text exceeds the renderer safety limit");
+        }
+        for (auto const& record : configuration.records)
+        {
+            if (record.description.size() > maximum_record_description_length)
+            {
+                throw std::runtime_error("record description exceeds the renderer safety limit");
+            }
+        }
+    }
+
     template <typename Integer>
     [[nodiscard]] auto join_values(std::vector<Integer> const& values, std::string_view separator) -> std::string
     {
@@ -135,6 +182,7 @@ namespace jgs245_ports {namespace
 
     export [[nodiscard]] auto render_table(Configuration const& configuration, bool show_vlans) -> std::string
     {
+        validate_render_input(configuration);
         std::size_t pvid_width = 4;
         std::size_t untagged_width = std::string_view("Untagged VLANs").size();
         std::size_t tagged_width = std::string_view("Tagged VLANs").size();
@@ -182,6 +230,7 @@ namespace jgs245_ports {namespace
 
     export [[nodiscard]] auto render_json(Configuration const& configuration) -> std::string
     {
+        validate_render_input(configuration);
         boost::json::object device;
         device.emplace("model", configuration.device.model);
         device.emplace("firmware", configuration.device.firmware);
@@ -233,6 +282,7 @@ namespace jgs245_ports {namespace
 
     export [[nodiscard]] auto render_csv(Configuration const& configuration) -> std::string
     {
+        validate_render_input(configuration);
         std::ostringstream output;
         output << "port,pvid,member_vlans,untagged_vlans,tagged_vlans\n";
         for (auto const& port : configuration.ports)
@@ -246,6 +296,7 @@ namespace jgs245_ports {namespace
 
     export [[nodiscard]] auto render_html(Configuration const& configuration) -> std::string
     {
+        validate_render_input(configuration);
         std::ostringstream output;
         output << "<!doctype html>\n"
                 "<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
@@ -315,6 +366,7 @@ namespace jgs245_ports {namespace
 
     export [[nodiscard]] auto render_record_dump(Configuration const& configuration) -> std::string
     {
+        validate_render_input(configuration);
         std::ostringstream output;
         output << "Record summary (payload bytes omitted):\n";
         for (auto const& record : configuration.records)
