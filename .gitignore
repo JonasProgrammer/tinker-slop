@@ -1,0 +1,4 @@
+AGENTS-local.md
+.idea/
+cmake-build-*/
+build/

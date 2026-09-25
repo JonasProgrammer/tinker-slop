@@ -1,0 +1,23 @@
+---
+BasedOnStyle: Chromium
+Language: Cpp
+AccessModifierOffset: -4
+AllowShortBlocksOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLambdasOnASingleLine: Inline
+AllowShortLoopsOnASingleLine: true
+BinPackArguments: false
+BinPackLongBracedList: false
+BreakBeforeBraces: Allman
+BreakConstructorInitializers: BeforeComma
+BreakInheritanceList: BeforeComma
+ColumnLimit: 200
+CompactNamespaces: true
+ContinuationIndentWidth: 8
+DerivePointerAlignment: true
+EnumTrailingComma: Insert
+IndentCaseLabels: false
+IndentWidth: 4
+InsertNewlineAtEOF: true
+QualifierAlignment: Right
+Standard: Latest
