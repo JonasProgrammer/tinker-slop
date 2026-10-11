@@ -99,84 +99,83 @@ void write_file(fs::path const& path, std::string_view text, bool sensitive)
 }
 } // namespace
 
+namespace po = boost::program_options;
+
 int main(int argc, char** argv)
+try
 {
-    namespace po = boost::program_options;
+    std::string command, input, output, map, escape = "raw";
+    po::options_description options("ubqt-redact options");
+    options.add_options() //
+            ("help,h", "Show help") //
+            ("input", po::value(&input), "Source text (maximum 16 MiB)")("output", po::value(&output), "New output file; existing files are refused") //
+            ("map", po::value(&map), "Secret map JSON: contains plaintext secrets; keep private") //
+            ("escape", po::value(&escape), "Restore: raw (default), vyatta-value, routeros-value, json-string-value") //
+            ;
+    po::options_description all;
+    all.add(options).add_options() //
+            ("command", po::value(&command), "Command");
+    po::positional_options_description positional;
+    positional.add("command", 1);
+    po::variables_map arguments;
     try
     {
-        std::string command, input, output, map, escape = "raw";
-        po::options_description options("ubqt-redact options");
-        options.add_options()("help,h", "Show help")("input", po::value(&input), "Source text (maximum 16 MiB)")("output", po::value(&output), "New output file; existing files are refused")(
-                "map",
-                po::value(&map),
-                "Secret map JSON: contains plaintext secrets; keep private")(
-                "escape",
-                po::value(&escape),
-                "Restore: raw (default), vyatta-value, routeros-value, json-string-value");
-        po::options_description all;
-        all.add(options).add_options()("command", po::value(&command), "Command");
-        po::positional_options_description positional;
-        positional.add("command", 1);
-        po::variables_map arguments;
-        try
-        {
-            po::store(po::command_line_parser(argc, argv).options(all).positional(positional).run(), arguments);
-            po::notify(arguments);
-        }
-        catch (po::error const&)
-        {
-            throw failure(2, "invalid command line; use --help");
-        }
-        if (arguments.contains("help"))
-        {
-            std::cout << "Usage: ubqt-redact redact|restore --input FILE --output FILE --map FILE\n"
-                    << options << "\nThe map contains plaintext secrets. Keep it out of AI workflows and version control.\n"
-                    << "Value escaping inserts content inside existing double quotes; it does not add quotes.\n"
-                    << "Exit codes: 0 success, 2 CLI, 3 file/path, 4 source, 5 map, 6 restore, 7 write.\n";
-            return 0;
-        }
-        if ((command != "redact" && command != "restore") || !arguments.contains("input") || !arguments.contains("output") || !arguments.contains("map"))
-            throw failure(2, "use redact or restore with --input, --output, and --map; see --help");
-        if (command == "redact" && arguments.contains("escape")) throw failure(2, "--escape is only valid for restore");
-        auto const mode = command == "restore" ? ubqt_redact::parse_escape_mode(escape) : ubqt_redact::escape_mode::raw;
-        validate_paths(input, output, map);
-        require_new_file(output);
-        if (command == "redact") require_new_file(map);
-        auto const source = read_file(input);
-        if (command == "redact")
-        {
-            auto const result = ubqt_redact::redact(source, input);
-            auto const map_text = ubqt_redact::write_map(result.mapping);
-            write_file(map, map_text, true);
-            try
-            {
-                write_file(output, result.text, false);
-            }
-            catch (...)
-            {
-                std::error_code error;
-                fs::remove(map, error);
-                throw;
-            }
-            std::cerr << "Redacted " << result.mapping.secrets.size() << " secret occurrence(s).\n";
-            if (result.generic_matches) std::cerr << "Warning: " << result.generic_matches << " generic secret match(es); audit map contexts locally.\n";
-        }
-        else
-        {
-            auto const mapping = ubqt_redact::read_map(read_file(map));
-            auto const restored = ubqt_redact::restore(source, mapping, mode);
-            write_file(output, restored, true);
-        }
+        po::store(po::command_line_parser(argc, argv).options(all).positional(positional).run(), arguments);
+        po::notify(arguments);
+    }
+    catch (po::error const&)
+    {
+        throw failure(2, "invalid command line; use --help");
+    }
+    if (arguments.contains("help"))
+    {
+        std::cout << "Usage: ubqt-redact redact|restore --input FILE --output FILE --map FILE\n"
+                << options << "\nThe map contains plaintext secrets. Keep it out of AI workflows and version control.\n"
+                << "Value escaping inserts content inside existing double quotes; it does not add quotes.\n"
+                << "Exit codes: 0 success, 2 CLI, 3 file/path, 4 source, 5 map, 6 restore, 7 write.\n";
         return 0;
     }
-    catch (failure const& error)
+    if ((command != "redact" && command != "restore") || !arguments.contains("input") || !arguments.contains("output") || !arguments.contains("map"))
+        throw failure(2, "use redact or restore with --input, --output, and --map; see --help");
+    if (command == "redact" && arguments.contains("escape")) throw failure(2, "--escape is only valid for restore");
+    auto const mode = command == "restore" ? ubqt_redact::parse_escape_mode(escape) : ubqt_redact::escape_mode::raw;
+    validate_paths(input, output, map);
+    require_new_file(output);
+    if (command == "redact") require_new_file(map);
+    auto const source = read_file(input);
+    if (command == "redact")
     {
-        std::cerr << "ubqt-redact: " << error.what() << '\n';
-        return error.status;
+        auto const result = ubqt_redact::redact(source, input);
+        auto const map_text = ubqt_redact::write_map(result.mapping);
+        write_file(map, map_text, true);
+        try
+        {
+            write_file(output, result.text, false);
+        }
+        catch (...)
+        {
+            std::error_code error;
+            fs::remove(map, error);
+            throw;
+        }
+        std::cerr << "Redacted " << result.mapping.secrets.size() << " secret occurrence(s).\n";
+        if (result.generic_matches) std::cerr << "Warning: " << result.generic_matches << " generic secret match(es); audit map contexts locally.\n";
     }
-    catch (std::exception const&)
+    else
     {
-        std::cerr << "ubqt-redact: operation failed\n";
-        return 7;
+        auto const mapping = ubqt_redact::read_map(read_file(map));
+        auto const restored = ubqt_redact::restore(source, mapping, mode);
+        write_file(output, restored, true);
     }
+    return 0;
+}
+catch (failure const& error)
+{
+    std::cerr << "ubqt-redact: " << error.what() << '\n';
+    return error.status;
+}
+catch (std::exception const&)
+{
+    std::cerr << "ubqt-redact: operation failed\n";
+    return 7;
 }
