@@ -32,3 +32,4 @@ for one tool without changing the others.
 ## Tools
 
 - [jgs245-ports](jgs245-ports/README.md)
+- [ubqt-redact](ubqt-redact/README.md)

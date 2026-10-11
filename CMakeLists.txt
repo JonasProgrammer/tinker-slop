@@ -15,3 +15,8 @@ option(JSTS_BUILD_JGS245_PORTS "Build the jgs245-ports tool" ON)
 if(JSTS_BUILD_JGS245_PORTS)
     add_subdirectory(jgs245-ports)
 endif()
+
+option(JSTS_BUILD_UBQT_REDACT "Build the ubqt-redact tool" ON)
+if(JSTS_BUILD_UBQT_REDACT)
+    add_subdirectory(ubqt-redact)
+endif()
