@@ -92,6 +92,7 @@ through a link from the root README.
 
 - Format changed C++ and module sources with the repository `.clang-format`
   before committing.
+- Names in C++ should be snake_case.
 - Keep source code and comments outside string literals ASCII-only.
 - Keep README files and other prose documentation ASCII-only.
 - Keep comments terse. State intent, constraints, or a non-obvious reason; do not
